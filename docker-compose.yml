@@ -22,10 +22,22 @@ services:
       - --config
       - /etc/livekit.yml
       - --bind
-      - 0.0.0.0
+      - 127.0.0.1
     environment:
-      LIVEKIT_KEYS: "${LIVEKIT_API_KEY:?Set LIVEKIT_API_KEY in meet/.env.production}: ${LIVEKIT_API_SECRET:?Set LIVEKIT_API_SECRET in meet/.env.production}"
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}"
     network_mode: host
     volumes:
       - ./livekit.yml:/etc/livekit.yml:ro
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:stable-alpine
+    container_name: livekit-meet-nginx
+    network_mode: host
+    depends_on:
+      - meet
+      - livekit
+    volumes:
+      - ./nginx/livekit-meet.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./.local/nginx-certs:/etc/nginx/certs:ro
     restart: unless-stopped

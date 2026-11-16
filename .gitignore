@@ -1,0 +1,14 @@
+# Local credentials
+**/.env
+**/.env.local
+**/.env.*.local
+
+# Dependencies and generated output
+**/node_modules/
+**/.next/
+**/coverage/
+**/*.tsbuildinfo
+
+# Local TLS material
+**/*.pem
+**/*.key

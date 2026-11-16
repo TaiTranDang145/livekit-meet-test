@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate LiveKit API credentials and write them to meet/.env.production."""
+"""Generate LiveKit API credentials and write them to an environment file."""
 
 from __future__ import annotations
 
@@ -18,25 +18,32 @@ LIVEKIT_IMAGE = "livekit/livekit-server:v1.13.11"
 
 
 def main() -> int:
-    if len(sys.argv) != 2:
-        print(f"Usage: {Path(sys.argv[0]).name} <VM_PUBLIC_IPV4>", file=sys.stderr)
+    if len(sys.argv) not in (2, 3):
+        print(
+            f"Usage: {Path(sys.argv[0]).name} <SERVER_IPV4> [ENV_FILE]",
+            file=sys.stderr,
+        )
         return 2
 
     try:
-        public_ip = str(ipaddress.IPv4Address(sys.argv[1]))
+        server_ip = str(ipaddress.IPv4Address(sys.argv[1]))
     except ipaddress.AddressValueError:
-        print("Expected the public IPv4 address used to generate the TLS certificate.", file=sys.stderr)
+        print("Expected the IPv4 address used to generate the TLS certificate.", file=sys.stderr)
         return 2
 
-    if not ENV_FILE.is_file():
+    env_file = Path(sys.argv[2]) if len(sys.argv) == 3 else ENV_FILE
+    if not env_file.is_absolute():
+        env_file = PROJECT_DIR / env_file
+
+    if not env_file.is_file():
         print(
-            f"Missing {ENV_FILE.relative_to(PROJECT_DIR)}. "
+            f"Missing {env_file}. "
             "Copy meet/.env.production.example first.",
             file=sys.stderr,
         )
         return 1
-    if ENV_FILE.is_symlink():
-        print("Refusing to write credentials through a symlinked .env.production.", file=sys.stderr)
+    if env_file.is_symlink():
+        print("Refusing to write credentials through a symlinked env file.", file=sys.stderr)
         return 1
 
     try:
@@ -62,11 +69,11 @@ def main() -> int:
         return 1
 
     values = {
-        "LIVEKIT_URL": f"wss://{public_ip}:8443",
+        "LIVEKIT_URL": f"wss://{server_ip}:8443",
         "LIVEKIT_API_KEY": key_match.group(1),
         "LIVEKIT_API_SECRET": secret_match.group(1),
     }
-    lines = ENV_FILE.read_text(encoding="utf-8").splitlines()
+    lines = env_file.read_text(encoding="utf-8").splitlines()
     updated_lines: list[str] = []
     written: set[str] = set()
     for line in lines:
@@ -83,19 +90,19 @@ def main() -> int:
             updated_lines.append(f"{name}={value}")
 
     content = "\n".join(updated_lines) + "\n"
-    fd, temp_name = tempfile.mkstemp(prefix=".env.production.", dir=ENV_FILE.parent)
+    fd, temp_name = tempfile.mkstemp(prefix=f".{env_file.name}.", dir=env_file.parent)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as temp_file:
             temp_file.write(content)
             temp_file.flush()
             os.fsync(temp_file.fileno())
         os.chmod(temp_name, 0o600)
-        os.replace(temp_name, ENV_FILE)
+        os.replace(temp_name, env_file)
     finally:
         if os.path.exists(temp_name):
             os.unlink(temp_name)
 
-    print("Saved LIVEKIT_URL and generated LiveKit credentials to meet/.env.production (mode 0600).")
+    print(f"Saved LIVEKIT_URL and generated credentials to {env_file} (mode 0600).")
     return 0
 
 

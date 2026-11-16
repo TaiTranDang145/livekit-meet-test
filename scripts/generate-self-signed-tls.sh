@@ -2,21 +2,21 @@
 set -Eeuo pipefail
 
 if [[ $# -ne 1 ]]; then
-  printf 'Usage: %s <VM_PUBLIC_IPV4>\n' "$0" >&2
+  printf 'Usage: %s <SERVER_IPV4>\n' "$0" >&2
   exit 2
 fi
 
-PUBLIC_IP="$1"
+SERVER_IP="$1"
 IPV4_RE='^(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})$'
-if [[ ! "$PUBLIC_IP" =~ $IPV4_RE ]]; then
-  printf 'Error: expected a public IPv4 address; received: %s\n' "$PUBLIC_IP" >&2
+if [[ ! "$SERVER_IP" =~ $IPV4_RE ]]; then
+  printf 'Error: expected an IPv4 address; received: %s\n' "$SERVER_IP" >&2
   exit 2
 fi
 
-IFS='.' read -r -a octets <<< "$PUBLIC_IP"
+IFS='.' read -r -a octets <<< "$SERVER_IP"
 for octet in "${octets[@]}"; do
   if (( octet > 255 )); then
-    printf 'Error: invalid IPv4 address: %s\n' "$PUBLIC_IP" >&2
+    printf 'Error: invalid IPv4 address: %s\n' "$SERVER_IP" >&2
     exit 2
   fi
 done
@@ -71,13 +71,13 @@ trap 'rm -rf "$WORK_DIR"' EXIT
 openssl req -new -newkey rsa:2048 -nodes -sha256 \
   -keyout "$WORK_DIR/privkey.pem" \
   -out "$WORK_DIR/server.csr" \
-  -subj "/CN=$PUBLIC_IP"
+  -subj "/CN=$SERVER_IP"
 
 cat > "$WORK_DIR/server.ext" <<EOF
 basicConstraints=critical,CA:FALSE
 keyUsage=critical,digitalSignature,keyEncipherment
 extendedKeyUsage=serverAuth
-subjectAltName=IP:$PUBLIC_IP
+subjectAltName=IP:$SERVER_IP
 authorityKeyIdentifier=keyid,issuer
 subjectKeyIdentifier=hash
 EOF
@@ -91,7 +91,7 @@ openssl x509 -req \
   -days "$SERVER_DAYS" -sha256 \
   -extfile "$WORK_DIR/server.ext"
 
-openssl verify -CAfile "$CA_CERT" -verify_ip "$PUBLIC_IP" "$WORK_DIR/server.crt"
+openssl verify -CAfile "$CA_CERT" -verify_ip "$SERVER_IP" "$WORK_DIR/server.crt"
 
 cat "$WORK_DIR/server.crt" "$CA_CERT" > "$WORK_DIR/fullchain.pem"
 install -m 0644 "$WORK_DIR/fullchain.pem" "$GENERATED_CERT_DIR/fullchain.pem"
@@ -99,7 +99,8 @@ install -m 0600 "$WORK_DIR/privkey.pem" "$GENERATED_CERT_DIR/privkey.pem"
 
 printf '\nGenerated certificate files are ready:\n  %s/fullchain.pem\n  %s/privkey.pem\n' \
   "$GENERATED_CERT_DIR" "$GENERATED_CERT_DIR"
-printf 'Copy them to Nginx paths: .local/nginx-certs/fullchain.pem and .local/nginx-certs/privkey.pem\n'
+printf 'Copy the generated files to the certificate directory mounted by the selected Compose profile.\n'
+printf 'Product: .local/nginx-certs/ ; LAN: .local/nginx-certs-lan/\n'
 printf 'Install this public root CA on each test client:\n  %s\n' "$CA_CERT"
 printf 'Keep the CA private key secret; it is stored at:\n  %s\n' "$CA_KEY"
 printf 'The root CA is valid for approximately 50 years; the server certificate is valid for up to %s days.\n' "$SERVER_DAYS"

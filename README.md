@@ -57,6 +57,28 @@ Nhánh `product` đóng gói giao diện Next.js trong `meet/`, LiveKit Server v
 
 Nginx và LiveKit dùng host networking trên Linux. Nginx chỉ nhận TCP; UDP `8443` đi thẳng tới LiveKit. Cùng số cổng `8443` nhưng TCP và UDP cần hai rule firewall riêng. Cấu hình này chạy một node; cần thêm Redis và nhiều node LiveKit để triển khai distributed/HA.
 
+## Chạy thử trên mạng LAN
+
+Giữ `livekit.yml` làm cấu hình product. Lệnh dưới đây tự chọn IP LAN đang dùng, tạo/chỉnh chứng chỉ và cấu hình LiveKit riêng trong `.local/`, rồi chạy các service qua Compose override LAN. Nó không sửa file cấu hình được commit. Nếu máy có nhiều card mạng hoặc VPN, truyền đúng IP Wi-Fi thay cho tự động phát hiện:
+
+```bash
+bash scripts/start-lan.sh
+# Hoặc chỉ định IP Wi-Fi:
+bash scripts/start-lan.sh 192.168.1.25
+```
+
+Trước lần chạy đầu tiên, cho phép `8443/TCP` và `8443/UDP` từ subnet Wi-Fi trên firewall máy chủ. Script tạo `.local/.env.lan` và sinh API key nếu chưa có; lần chạy sau giữ nguyên key. Khi IP LAN đổi, chạy lại lệnh để cập nhật URL, chứng chỉ và cấu hình LiveKit. Lệnh sẽ dựng lại các container LAN để nạp cấu hình mới.
+
+Cài `.local/tls-ca/rootCA.crt` vào từng thiết bị test và bật trust cho CA, sau đó mở `https://<IP-LAN>:8443`. Mở file `.local/.env.lan` để xem URL đã được đặt. Cổng `3001` và `7880` vẫn chỉ dùng nội bộ qua loopback/Nginx.
+
+LAN và product dùng chung tên service nên chỉ chạy một cấu hình tại một thời điểm. Để chuyển lại product, bảo đảm `.local/nginx-certs/` và `meet/.env.production` đã được cấu hình, rồi chạy:
+
+```bash
+docker compose --env-file meet/.env.production up -d --build
+```
+
+Compose sẽ thay container LAN bằng cấu hình product. Lần đầu trên thiết bị test vẫn cần cài và tin cậy CA nội bộ; người dùng product công khai cần chứng chỉ được CA/trình duyệt tin cậy.
+
 ## Điều kiện trước khi deploy product
 
 - Máy Linux có IP công khai ổn định, Docker Engine và Docker Compose plugin v2.
@@ -176,10 +198,13 @@ Compose khởi động lại các container theo image mới. Dùng `docker comp
 ```text
 .
 ├── docker-compose.yml
+├── docker-compose.lan.yml
 ├── livekit.yml
 ├── scripts/
 │   ├── generate-livekit-keys.py
-│   └── generate-self-signed-tls.sh
+│   ├── generate-self-signed-tls.sh
+│   ├── render-livekit-lan-config.py
+│   └── start-lan.sh
 ├── nginx/
 │   └── livekit-meet.conf
 ├── README.md

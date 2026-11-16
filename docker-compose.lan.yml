@@ -1,0 +1,12 @@
+services:
+  meet:
+    env_file:
+      - ./.local/.env.lan
+
+  livekit:
+    volumes:
+      - ./.local/livekit-lan.yml:/etc/livekit.yml:ro
+
+  nginx:
+    volumes:
+      - ./.local/nginx-certs-lan:/etc/nginx/certs:ro

@@ -9,6 +9,37 @@ Dự án gồm giao diện họp Next.js trong `meet/` và LiveKit server chạy
 - pnpm 10.18.2 (phiên bản được khai báo trong `meet/package.json`).
 - `openssl` khi cần tạo lại chứng chỉ HTTPS nội bộ cho LAN.
 
+## Khởi động nhanh trên LAN hiện tại
+
+Cấu hình đang dùng trên máy này là IP `192.168.1.25`; nếu IP Wi-Fi đổi, thay IP trong `livekit.yaml`, `meet/.env.local` và các URL bên dưới. Chứng chỉ đã tạo được giữ trong `.local/lan-certs/`, nên không cần tạo lại khi chỉ khởi động lại dịch vụ.
+
+Trước khi chạy, xác nhận `livekit.yaml` có `node_ip: 192.168.1.25` và `meet/.env.local` có `LIVEKIT_URL=wss://192.168.1.25:3000` cùng API key/secret khớp LiveKit dev server. Nếu chưa tạo `.env.local`, xem bước cấu hình trong mục LAN bên dưới.
+
+1. Tại thư mục gốc repo, khởi động LiveKit:
+
+   ```bash
+   docker compose up -d livekit
+   docker compose ps
+   ```
+
+2. Mở terminal thứ nhất tại thư mục gốc repo cho giao diện:
+
+   ```bash
+   cd meet
+   pnpm install --frozen-lockfile
+   pnpm exec next dev --hostname 127.0.0.1 --port 3001
+   ```
+
+3. Mở terminal thứ hai tại thư mục gốc repo cho HTTPS/WSS proxy:
+
+   ```bash
+   node scripts/lan-proxy.mjs
+   ```
+
+4. Trên điện thoại cùng Wi-Fi, mở `https://192.168.1.25:3000`. Nếu điện thoại chưa tin cậy CA của dự án, tải chứng chỉ tại `http://192.168.1.25:8085/livekit-meet-lan-ca.crt`, cài và bật trust cho chứng chỉ đó trước khi mở Meet.
+
+Proxy và Next.js cần tiếp tục chạy trong terminal. Để dừng, nhấn `Ctrl+C` ở hai terminal; dừng LiveKit bằng `docker compose down` tại thư mục gốc. Các bước cấu hình IP, CA, firewall và kiểm tra media được trình bày trong mục [Truy cập từ thiết bị cùng mạng LAN](#truy-cập-từ-thiết-bị-cùng-mạng-lan).
+
 ## Chạy trên chính máy này
 
 ### 1. Tạo file cấu hình ứng dụng

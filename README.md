@@ -1,5 +1,49 @@
 # LiveKit Meet — product deployment
 
+## Kiến trúc triển khai trên một VM
+
+```text
+                           INTERNET
+                              |
+                            CLIENT
+                           (Browser)
+                              |
+                          Port 8443
+                              |
+               +--------------+--------------+
+               |                             |
+          8443/TCP                      8443/UDP
+          HTTPS/WSS                     WebRTC
+               |                             |
+               v                             |
+        +--------------+                     |
+        |    NGINX     |                     |
+        | Reverse Proxy|                     |
+        |  :8443/TCP   |                     |
+        +------+-------+                     |
+               |                             |
+        +------+------+                      |
+        |             |                      |
+        v             v                      |
+      HTTPS          WSS                     |
+        |             |                      |
+        v             v                      |
+  +-----------+  +-------------+             |
+  | LiveKit   |  | LiveKit     |             |
+  | Meet      |  | Signaling   |             |
+  | :3001     |  | :7880       |             |
+  +-----------+  +------+------+             |
+                       |                     |
+                       v                     v
+             +-------------------------------+
+             |       LiveKit Server          |
+             |         WebRTC SFU            |
+             |         :8443/UDP             |
+             +-------------------------------+
+```
+
+Nginx chỉ nhận `8443/TCP`. WebRTC media đi trực tiếp từ client tới LiveKit qua `8443/UDP`; hai luồng dùng cùng số cổng nhưng là hai giao thức riêng. LiveKit signaling và SFU là các chức năng của cùng một LiveKit Server, không phải hai service LiveKit riêng.
+
 Nhánh `product` đóng gói giao diện Next.js trong `meet/`, LiveKit Server và Nginx reverse proxy trong Docker Compose. Sơ đồ chạy trên một máy Linux có IP công khai. Khi deploy product, dùng chứng chỉ TLS được CA và trình duyệt người dùng tin cậy. Để test trên các thiết bị do bạn quản lý, repo có script tạo CA nội bộ và chứng chỉ cho IP. Repo không chứa khóa/chứng chỉ được tạo.
 
 ## Kiến trúc

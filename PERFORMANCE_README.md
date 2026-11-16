@@ -15,7 +15,7 @@ Chạy các lệnh từ thư mục gốc repo, trừ khi có ghi chú khác.
 Tạo thư mục lưu log và file audio tổng hợp:
 
 ```bash
-mkdir -p /tmp/livekit-perf
+mkdir -p .local/benchmark
 ```
 
 Trên Ubuntu, nếu thiếu GStreamer, cài các plugin cần thiết rồi tạo audio Opus 48 kHz dài khoảng 60 phút:
@@ -23,7 +23,7 @@ Trên Ubuntu, nếu thiếu GStreamer, cài các plugin cần thiết rồi tạ
 ```bash
 sudo apt-get update
 sudo apt-get install -y gstreamer1.0-tools gstreamer1.0-plugins-good
-gst-launch-1.0 -e audiotestsrc wave=sine samplesperbuffer=960 num-buffers=180000 ! audio/x-raw,rate=48000,channels=1 ! audioconvert ! audioresample ! opusenc bitrate=32000 ! oggmux ! filesink location=/tmp/livekit-perf/audio-60m.ogg
+gst-launch-1.0 -e audiotestsrc wave=sine samplesperbuffer=960 num-buffers=180000 ! audio/x-raw,rate=48000,channels=1 ! audioconvert ! audioresample ! opusenc bitrate=32000 ! oggmux ! filesink location=.local/benchmark/audio-60m.ogg
 ```
 
 `lk room join --publish-demo` tạo video demo lặp; file Ogg ở trên cung cấp audio liên tục để bài đo không hết media giữa chừng.
@@ -51,7 +51,7 @@ Bài này chạy 5 hoặc 10 phòng. Mỗi phòng có 10 tiến trình CLI. Mỗ
 
 ### Tạo runner
 
-Lưu nội dung sau thành `/tmp/livekit-perf/run-target.sh`:
+Lưu nội dung sau thành `.local/benchmark/run-target.sh`:
 
 ```bash
 #!/usr/bin/env bash
@@ -59,7 +59,7 @@ set -Eeuo pipefail
 
 ROOMS="${1:-5}"
 HOLD_SECONDS="${2:-60}"
-AUDIO="${AUDIO_FILE:-/tmp/livekit-perf/audio-60m.ogg}"
+AUDIO="${AUDIO_FILE:-.local/benchmark/audio-60m.ogg}"
 
 if [[ "$ROOMS" != 5 && "$ROOMS" != 10 ]]; then
   echo "Dùng: $0 5|10 [thời_gian_giữ_giây]" >&2
@@ -71,7 +71,7 @@ if [[ ! -f "$AUDIO" ]]; then
 fi
 
 EXPECTED=$((ROOMS * 10))
-LOG_DIR="/tmp/livekit-perf/run-${ROOMS}rooms-$(date +%Y%m%d-%H%M%S)"
+LOG_DIR=".local/benchmark/run-${ROOMS}rooms-$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$LOG_DIR"
 PIDS=()
 
@@ -127,7 +127,7 @@ echo "Hoàn thành. Log: $LOG_DIR"
 Cho phép chạy:
 
 ```bash
-chmod +x /tmp/livekit-perf/run-target.sh
+chmod +x .local/benchmark/run-target.sh
 ```
 
 ### Ghi CPU và RAM toàn máy
@@ -135,7 +135,7 @@ chmod +x /tmp/livekit-perf/run-target.sh
 Mở terminal khác. Collector Python dưới đây lấy mẫu gần mỗi 2 giây, ghi CPU toàn máy, RAM dùng/khả dụng và swap vào CSV:
 
 ```bash
-python3 - <<'PY' | tee /tmp/livekit-perf/host-metrics.csv
+python3 - <<'PY' | tee .local/benchmark/host-metrics.csv
 import time
 from datetime import datetime
 
@@ -174,15 +174,15 @@ PY
 docker stats --format 'CPU={{.CPUPerc}} RAM={{.MemUsage}}' livekit-server-local
 ```
 
-Lệnh này cập nhật liên tục; thêm `| tee /tmp/livekit-perf/container-stats.txt` nếu muốn lưu lại các mẫu trong lúc chạy.
+Lệnh này cập nhật liên tục; thêm `| tee .local/benchmark/container-stats.txt` nếu muốn lưu lại các mẫu trong lúc chạy.
 
 ### Chạy từng mốc
 
 Chạy 5 phòng trước, để runner kết thúc và gửi SIGTERM tới toàn bộ client; sau đó chạy 10 phòng:
 
 ```bash
-/tmp/livekit-perf/run-target.sh 5 60
-/tmp/livekit-perf/run-target.sh 10 60
+.local/benchmark/run-target.sh 5 60
+.local/benchmark/run-target.sh 10 60
 ```
 
 Đối chiếu log cuối mỗi lệnh với số client mong đợi. Trong từng phòng, kiểm tra có 10 participant và mỗi người có audio/video; log `track subscribed` phải xuất hiện sau khi track được đăng ký. CLI có lệnh xem participant:
@@ -201,7 +201,7 @@ Sau khi đã dừng collector bằng `Ctrl+C`, lấy CPU toàn máy cao nhất, 
 python3 - <<'PY'
 import csv
 
-with open('/tmp/livekit-perf/host-metrics.csv', newline='') as f:
+with open('.local/benchmark/host-metrics.csv', newline='') as f:
     rows = list(csv.DictReader(f))
 for key, title, unit, fn in [
     ('cpu_host_pct', 'CPU toàn máy cao nhất', '%', max),

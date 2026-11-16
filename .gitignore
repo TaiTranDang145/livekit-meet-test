@@ -12,3 +12,10 @@
 # Local TLS material
 **/*.pem
 **/*.key
+
+# Persistent local certificates, media and benchmark output
+.local/
+**/*.crt
+**/*.csr
+**/*.srl
+**/*.ext

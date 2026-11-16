@@ -66,13 +66,9 @@ docker compose down
 
 ## Truy cập từ thiết bị cùng mạng LAN
 
-### Cách mạng LAN hiện tại hoạt động
+Repo có proxy HTTPS/WSS Node.js tại `scripts/lan-proxy.mjs` và script tạo chứng chỉ tại `scripts/generate-lan-certs.sh`. Chứng chỉ và CA riêng được lưu bền vững trong `.local/lan-certs/`; thư mục `.local/` đã được Git bỏ qua, nên khóa riêng không được đẩy lên remote.
 
-Repo không chứa Caddy hay cấu hình reverse proxy. Setup đã dùng trong phiên này là một proxy HTTPS/WSS viết bằng Node.js, nằm ngoài repo tại `/tmp/livekit-meet-lan-proxy.mjs`. Proxy nghe HTTPS ở `3000`, chuyển `/rtc` tới LiveKit `127.0.0.1:7880`, chuyển giao diện tới Next.js `127.0.0.1:3001`, và phục vụ CA nội bộ ở `8085`.
-
-Vì proxy chạy trực tiếp trên cùng máy, nó truy cập được `127.0.0.1:7880`; do đó LiveKit có thể giữ `--bind 127.0.0.1` trong `docker-compose.yml`. Bind đó không làm giao diện Next.js mất khả năng truy cập LAN, và cũng không thay thế cấu hình IP/cổng media WebRTC.
-
-Các helper và chứng chỉ hiện nằm trong `/tmp`, không được lưu trong repo và có thể bị xóa khi máy dọn thư mục tạm. Trên một checkout mới, proxy/chứng chỉ cần được tạo hoặc khôi phục trước khi làm theo bước chạy proxy dưới đây.
+Proxy nghe HTTPS/WSS trên cổng `3000`, chuyển `/rtc` tới LiveKit `127.0.0.1:7880`, chuyển giao diện và API tới Next.js `127.0.0.1:3001`, và phục vụ CA nội bộ qua HTTP cổng `8085`. Vì proxy chạy trên cùng máy với LiveKit, Compose có thể giữ `--bind 127.0.0.1`.
 
 ### 1. Xác định IP LAN
 
@@ -81,11 +77,32 @@ ip -br -4 addr
 ip route
 ```
 
-Chọn IPv4 trên card Wi-Fi/Ethernet cùng mạng với điện thoại, ví dụ `192.168.1.25`. Nên đặt DHCP reservation trên router để IP ổn định. Thay IP/subnet mẫu bên dưới bằng giá trị thực tế của nhà bạn.
+Chọn IPv4 trên card Wi-Fi/Ethernet cùng mạng với điện thoại, ví dụ `192.168.1.25`. Nên đặt DHCP reservation trên router để IP ổn định. Thay IP/subnet mẫu trong các bước dưới đây bằng giá trị thực tế của mạng nhà bạn.
 
-### 2. Cấu hình LiveKit cho media LAN
+### 2. Tạo chứng chỉ và đặt URL WSS
 
-Trong `livekit.yaml`, đặt IP mà LiveKit cần quảng bá cho ICE media. Ví dụ:
+Tại thư mục gốc repo, tạo CA và chứng chỉ TLS cho IP LAN:
+
+```bash
+LAN_IP=192.168.1.25
+scripts/generate-lan-certs.sh "$LAN_IP"
+```
+
+Script dùng lại CA đã có trong `.local/lan-certs/` và cấp lại chứng chỉ máy chủ theo IP mới. Nếu `.local/lan-certs/` chưa có CA, script sẽ tạo CA mới; mỗi điện thoại cần cài và tin cậy `ca.crt` một lần.
+
+Trong `meet/.env.local`, đặt URL WSS công khai với API key/secret khớp LiveKit dev server:
+
+```dotenv
+LIVEKIT_API_KEY=devkey
+LIVEKIT_API_SECRET=secret
+LIVEKIT_URL=wss://192.168.1.25:3000
+```
+
+Không dùng dev credentials trên mạng công cộng. Không commit nội dung `.local/lan-certs/` hoặc `meet/.env.local`.
+
+### 3. Cấu hình và chạy LiveKit
+
+Trong `livekit.yaml`, quảng bá địa chỉ LAN cho ICE media:
 
 ```yaml
 port: 7880
@@ -100,29 +117,22 @@ logging:
   level: debug
 ```
 
-Giữ `--bind 127.0.0.1` trong `docker-compose.yml` khi proxy Node chạy trên cùng host. Khởi động lại LiveKit sau khi cập nhật `livekit.yaml`:
+Giữ `--bind 127.0.0.1` trong `docker-compose.yml`; proxy cùng máy sẽ chuyển WSS tới LiveKit qua loopback. Khởi động lại dịch vụ sau khi đổi cấu hình:
 
 ```bash
 docker compose up -d --force-recreate livekit
+docker compose ps
 ```
 
-Cổng `7880` là signaling/API nội bộ mà proxy chuyển tiếp. Media đi trực tiếp giữa thiết bị và IP `node_ip` qua `7881/TCP` hoặc `7882/UDP`. Nếu muốn kiểm tra bind thật của container (có thể khác file gốc nếu lần trước dùng Compose override), chạy:
+Media đi trực tiếp giữa điện thoại và `node_ip` qua `7881/TCP` hoặc `7882/UDP`. Nếu cần xác nhận bind thật của container, chạy:
 
 ```bash
 docker inspect --format '{{json .Config.Cmd}}' livekit-server-local
 ```
 
-### 3. Đặt URL WSS và chạy giao diện nội bộ
+### 4. Chạy Next.js và proxy LAN
 
-Trong `meet/.env.local`, đặt URL WSS mà điện thoại truy cập được. API key/secret phải trùng credentials LiveKit dev:
-
-```dotenv
-LIVEKIT_API_KEY=devkey
-LIVEKIT_API_SECRET=secret
-LIVEKIT_URL=wss://192.168.1.25:3000
-```
-
-Chạy Next.js chỉ trên loopback cổng `3001`; proxy sẽ chuyển giao diện và API tới đây:
+Mở terminal thứ nhất:
 
 ```bash
 cd meet
@@ -130,36 +140,27 @@ pnpm install --frozen-lockfile
 pnpm exec next dev --hostname 127.0.0.1 --port 3001
 ```
 
-Nếu chỉ muốn xem giao diện mà chưa cần gọi, có thể dừng proxy và chạy Next.js trực tiếp trên LAN bằng `pnpm exec next dev --hostname 0.0.0.0 --port 3000`; mở `http://<IP-LAN>:3000`. Trang HTTP trên IP LAN thường không được cấp quyền camera/microphone, nên đây chỉ là kiểm tra giao diện.
-
-### 4. Chạy HTTPS/WSS proxy Node đang có
-
-Trên máy đã được setup trước đó, kiểm tra helper và chứng chỉ:
+Mở terminal thứ hai tại thư mục gốc repo:
 
 ```bash
-ls -l /tmp/livekit-meet-lan-proxy.mjs
-ls -l /tmp/livekit-meet-lan/server.crt /tmp/livekit-meet-lan/server.key /tmp/livekit-meet-lan/ca.crt
+node scripts/lan-proxy.mjs
 ```
 
-Mở terminal mới và chạy proxy:
+Giữ cả hai tiến trình chạy trong lúc test. Trên máy chủ, trang Meet được phục vụ từ Next.js; proxy nhận HTTPS/WSS từ thiết bị trên cổng `3000`.
 
-```bash
-node /tmp/livekit-meet-lan-proxy.mjs
-```
-
-Proxy dùng thư viện HTTPS/HTTP tích hợp sẵn của Node.js; không cần cài Caddy. Giữ terminal này mở trong lúc test. Mở `https://192.168.1.25:3000` để vào Meet.
+Nếu chỉ cần xem giao diện mà chưa cần gọi, dừng proxy và chạy Next.js trực tiếp trên LAN bằng `pnpm exec next dev --hostname 0.0.0.0 --port 3000`; mở `http://<IP-LAN>:3000`. Trình duyệt thường không cấp camera/microphone cho HTTP trên IP LAN, nên để gọi đầy đủ hãy dùng HTTPS/WSS qua proxy.
 
 ### 5. Cài CA trên điện thoại
 
-Proxy dùng CA nội bộ để ký chứng chỉ cho IP LAN. Khi điện thoại cùng Wi-Fi, tải CA tại:
+Trên điện thoại cùng Wi-Fi, mở URL tải CA:
 
 ```text
 http://192.168.1.25:8085/livekit-meet-lan-ca.crt
 ```
 
-Cài file tải về dưới dạng CA certificate. Trên iPhone/iPad, sau khi cài profile, bật trust tại **Settings → General → About → Certificate Trust Settings**. Apple lưu ý profile cài thủ công chưa tự bật trust SSL/TLS: [hướng dẫn Apple](https://support.apple.com/en-ie/102390). Trên Android, cài từ phần Security/Credentials rồi xác nhận trình duyệt báo kết nối HTTPS an toàn.
+Cài file tải xuống dưới dạng CA certificate. Trên iPhone/iPad, sau khi cài profile, bật trust tại **Settings → General → About → Certificate Trust Settings**. Profile cài thủ công chưa tự bật trust SSL/TLS theo [hướng dẫn Apple](https://support.apple.com/en-ie/102390). Trên Android, cài CA trong phần Security/Credentials và kiểm tra trình duyệt báo HTTPS an toàn.
 
-Nếu IP LAN đổi, cần cập nhật `node_ip` trong `livekit.yaml`, `LIVEKIT_URL` trong `meet/.env.local`, và cấp lại chứng chỉ máy chủ để SAN khớp IP mới. CA chỉ cần cài lại nếu CA gốc được tạo mới.
+Không chia sẻ `.local/lan-certs/ca.key` hoặc `.local/lan-certs/server.key`. Chỉ cài `ca.crt` trên thiết bị.
 
 ### 6. Mở firewall và kiểm tra cuộc gọi
 
@@ -175,7 +176,9 @@ sudo ufw deny from "$LAN_SUBNET" to any port 7880 proto tcp
 sudo ufw status
 ```
 
-Không cấu hình port forwarding trên router. Trên điện thoại cùng Wi-Fi, mở `https://192.168.1.25:3000`, tạo hoặc tham gia phòng, rồi cấp quyền camera/microphone. Nếu trang mở nhưng không vào phòng, kiểm tra `LIVEKIT_URL` và xem log proxy/LiveKit. Nếu vào phòng nhưng không có media, kiểm tra `node_ip`, firewall `7881/TCP`, `7882/UDP` và tắt AP/client isolation trên router.
+Không cấu hình port forwarding trên router. Trên điện thoại, mở `https://192.168.1.25:3000`, tạo hoặc tham gia phòng và cấp quyền camera/microphone. Nếu vào phòng nhưng không có media, kiểm tra `node_ip`, firewall `7881/TCP`, `7882/UDP` và AP/client isolation trên router.
+
+Khi IP LAN đổi, chạy lại `scripts/generate-lan-certs.sh <IP-mới>`, cập nhật `LIVEKIT_URL` và `node_ip`, rồi khởi động lại proxy và LiveKit. CA hiện tại được giữ nên không cần cài lại nếu `.local/lan-certs/ca.crt` không đổi.
 
 Tham khảo: [LiveKit local deployment](https://docs.livekit.io/transport/self-hosting/local/), [cổng và firewall LiveKit](https://docs.livekit.io/transport/self-hosting/ports-firewall/), [Next.js bind host](https://nextjs.org/docs/app/api-reference/cli/next), [điều kiện secure context cho camera/microphone](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia).
 
@@ -186,7 +189,7 @@ Tham khảo: [LiveKit local deployment](https://docs.livekit.io/transport/self-h
 | `navigator.mediaDevices` không tồn tại hoặc không bật được camera | Dùng `https://` với chứng chỉ được thiết bị tin cậy; `http://localhost` chỉ phù hợp khi mở trên chính máy chủ. |
 | Trang mở được nhưng LiveKit báo connection error | Kiểm tra `LIVEKIT_URL`, WSS/WebSocket proxy, chứng chỉ, firewall và các cổng media. Mở `docker compose logs -f livekit` để xem log server. |
 | Không lấy được token hoặc API trả lỗi | Kiểm tra `LIVEKIT_API_KEY` và `LIVEKIT_API_SECRET` trong `meet/.env.local` có khớp cấu hình LiveKit không; sau khi đổi env, khởi động lại Next.js. |
-| HTTPS/WSS proxy không phản hồi | Kiểm tra tiến trình `node /tmp/livekit-meet-lan-proxy.mjs`, chứng chỉ trong `/tmp/livekit-meet-lan/`, và cổng `3000`/`8085`. |
+| HTTPS/WSS proxy không phản hồi | Kiểm tra tiến trình `node scripts/lan-proxy.mjs`, chứng chỉ trong `.local/lan-certs/`, và cổng `3000`/`8085`. |
 | Cổng đã được sử dụng | Dừng tiến trình đang giữ cổng `3000`, `3001`, `7880`, `7881`, `7882` hoặc `8085`, hoặc chỉnh cấu hình cổng tương ứng. |
 
 ## Tệp cấu hình
